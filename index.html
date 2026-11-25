@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>倒立振子PID制御 物理バランスシミュレーター</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  input[type=range] { accent-color: #3b82f6; }
+  #pendulumSvg { display: block; width: 100%; }
+</style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen">
+<div class="max-w-6xl mx-auto px-4 py-4">
+  <h1 class="text-2xl font-bold text-center mb-1 text-blue-300">倒立振子PID制御 物理バランスシミュレーター</h1>
+  <p class="text-center text-gray-400 text-sm mb-4">PIDコントローラーがカートを動かして振子を垂直に保つ物理シミュレーション</p>
+
+  <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+    <!-- Controls -->
+    <div class="lg:col-span-1 space-y-3">
+      <!-- PID params -->
+      <div class="bg-gray-800 rounded-xl p-4 space-y-3">
+        <h2 class="font-semibold text-blue-300 border-b border-gray-700 pb-2">PIDゲイン</h2>
+
+        <div>
+          <label for="kp" class="text-sm text-gray-300 flex justify-between">
+            <span>Kp（比例）</span><span id="kpVal" class="text-blue-400 font-mono">25.0</span>
+          </label>
+          <input type="range" id="kp" min="0" max="50" step="0.5" value="25" class="w-full mt-1" aria-label="比例ゲインKp">
+        </div>
+        <div>
+          <label for="ki" class="text-sm text-gray-300 flex justify-between">
+            <span>Ki（積分）</span><span id="kiVal" class="text-blue-400 font-mono">0.5</span>
+          </label>
+          <input type="range" id="ki" min="0" max="5" step="0.05" value="0.5" class="w-full mt-1" aria-label="積分ゲインKi">
+        </div>
+        <div>
+          <label for="kd" class="text-sm text-gray-300 flex justify-between">
+            <span>Kd（微分）</span><span id="kdVal" class="text-blue-400 font-mono">5.0</span>
+          </label>
+          <input type="range" id="kd" min="0" max="20" step="0.1" value="5" class="w-full mt-1" aria-label="微分ゲインKd">
+        </div>
+        <div>
+          <label for="initAngle" class="text-sm text-gray-300 flex justify-between">
+            <span>初期角度 (°)</span><span id="initAngleVal" class="text-blue-400 font-mono">5</span>
+          </label>
+          <input type="range" id="initAngle" min="1" max="45" value="5" class="w-full mt-1" aria-label="初期角度 (1から45度)">
+        </div>
+      </div>
+
+      <!-- Presets -->
+      <div class="bg-gray-800 rounded-xl p-4 space-y-2">
+        <h2 class="font-semibold text-blue-300 border-b border-gray-700 pb-2">プリセット</h2>
+        <button class="preset-btn w-full bg-gray-700 hover:bg-gray-600 text-white text-sm py-1.5 px-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400" data-kp="25" data-ki="0.5" data-kd="5" aria-label="臨界減衰プリセットを適用">臨界減衰</button>
+        <button class="preset-btn w-full bg-gray-700 hover:bg-gray-600 text-white text-sm py-1.5 px-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400" data-kp="10" data-ki="0.1" data-kd="1" aria-label="振動（過制御）プリセットを適用">振動（過制御）</button>
+        <button class="preset-btn w-full bg-gray-700 hover:bg-gray-600 text-white text-sm py-1.5 px-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400" data-kp="40" data-ki="2" data-kd="15" aria-label="過減衰プリセットを適用">過減衰</button>
+        <button class="preset-btn w-full bg-gray-700 hover:bg-gray-600 text-white text-sm py-1.5 px-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400" data-kp="3" data-ki="0" data-kd="0.2" aria-label="不安定プリセットを適用">不安定</button>
+      </div>
+
+      <!-- Actions -->
+      <div class="bg-gray-800 rounded-xl p-4 space-y-2">
+        <h2 class="font-semibold text-blue-300 border-b border-gray-700 pb-2">操作</h2>
+        <div class="flex gap-2">
+          <button id="btnPlay" class="flex-1 bg-blue-700 hover:bg-blue-600 text-white font-semibold py-2 px-2 rounded-lg transition text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label="シミュレーション開始/停止">
+            ▶ 開始
+          </button>
+          <button id="btnReset" class="flex-1 bg-gray-600 hover:bg-gray-500 text-white font-semibold py-2 px-2 rounded-lg transition text-sm focus:outline-none focus:ring-2 focus:ring-gray-400" aria-label="シミュレーションをリセット">
+            ↺ リセット
+          </button>
+        </div>
+        <button id="btnDisturbance" class="w-full bg-orange-700 hover:bg-orange-600 text-white font-semibold py-2 px-3 rounded-lg transition text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" aria-label="外乱を加える">
+          外乱を加える
+        </button>
+      </div>
+
+      <!-- Status -->
+      <div class="bg-gray-800 rounded-xl p-4 space-y-2" role="region" aria-label="シミュレーション状態">
+        <h2 class="font-semibold text-blue-300 border-b border-gray-700 pb-2">状態</h2>
+        <div id="balanceStatus" class="text-center text-xl font-bold text-green-400 py-2 rounded-lg bg-gray-700" aria-live="polite">-</div>
+        <div class="text-sm space-y-1">
+          <div class="flex justify-between">
+            <span class="text-gray-400">角度 θ</span>
+            <span id="statAngle" class="text-white font-mono">0.00°</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-400">カート位置</span>
+            <span id="statCart" class="text-white font-mono">0.00</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-400">制御信号 u</span>
+            <span id="statControl" class="text-white font-mono">0.00</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-400">経過時間</span>
+            <span id="statTime" class="text-white font-mono">0.0s</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Visualization -->
+    <div class="lg:col-span-3 space-y-3">
+      <!-- Pendulum SVG -->
+      <div class="bg-gray-800 rounded-xl p-3">
+        <svg id="pendulumSvg" viewBox="0 0 600 200" aria-label="倒立振子アニメーション" role="img">
+          <!-- Track -->
+          <rect x="0" y="155" width="600" height="8" fill="#374151" rx="2"/>
+          <!-- Cart wheels -->
+          <circle id="wheel1" cx="0" cy="163" r="8" fill="#6b7280"/>
+          <circle id="wheel2" cx="0" cy="163" r="8" fill="#6b7280"/>
+          <!-- Cart body -->
+          <rect id="cartBody" x="0" y="130" width="60" height="30" fill="#3b82f6" rx="4"/>
+          <text id="cartLabel" x="0" y="150" text-anchor="middle" fill="white" font-size="11" font-weight="bold">CART</text>
+          <!-- Pendulum rod -->
+          <line id="pendRod" x1="0" y1="145" x2="0" y2="45" stroke="#f59e0b" stroke-width="4" stroke-linecap="round"/>
+          <!-- Bob -->
+          <circle id="pendBob" cx="0" cy="45" r="10" fill="#ef4444"/>
+          <!-- Pivot -->
+          <circle id="pendPivot" cx="0" cy="145" r="5" fill="#fff"/>
+          <!-- Wall indicators -->
+          <rect x="0" y="80" width="6" height="80" fill="#ef4444" opacity="0.6" rx="2"/>
+          <rect x="594" y="80" width="6" height="80" fill="#ef4444" opacity="0.6" rx="2"/>
+          <text x="15" y="130" fill="#ef4444" font-size="9" opacity="0.6">壁</text>
+          <text x="575" y="130" fill="#ef4444" font-size="9" opacity="0.6">壁</text>
+        </svg>
+      </div>
+
+      <!-- Charts -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="bg-gray-800 rounded-xl p-3">
+          <div class="text-sm text-gray-300 mb-1">角度 θ vs 時間</div>
+          <svg id="chartAngle" viewBox="0 0 300 120" class="w-full" role="img" aria-label="角度時系列グラフ">
+            <rect width="300" height="120" fill="#111827" rx="4"/>
+            <line x1="30" y1="10" x2="30" y2="110" stroke="#374151" stroke-width="1"/>
+            <line x1="30" y1="60" x2="295" y2="60" stroke="#374151" stroke-width="1"/>
+            <text x="2" y="14" fill="#6b7280" font-size="8">+45°</text>
+            <text x="2" y="63" fill="#6b7280" font-size="8">0°</text>
+            <text x="2" y="113" fill="#6b7280" font-size="8">-45°</text>
+            <polyline id="angleChart" points="" fill="none" stroke="#60a5fa" stroke-width="1.5"/>
+          </svg>
+        </div>
+        <div class="bg-gray-800 rounded-xl p-3">
+          <div class="text-sm text-gray-300 mb-1">制御信号 u vs 時間</div>
+          <svg id="chartControl" viewBox="0 0 300 120" class="w-full" role="img" aria-label="制御信号時系列グラフ">
+            <rect width="300" height="120" fill="#111827" rx="4"/>
+            <line x1="30" y1="10" x2="30" y2="110" stroke="#374151" stroke-width="1"/>
+            <line x1="30" y1="60" x2="295" y2="60" stroke="#374151" stroke-width="1"/>
+            <text x="2" y="14" fill="#6b7280" font-size="8">+max</text>
+            <text x="2" y="63" fill="#6b7280" font-size="8">0</text>
+            <text x="2" y="113" fill="#6b7280" font-size="8">-max</text>
+            <polyline id="controlChart" points="" fill="none" stroke="#f59e0b" stroke-width="1.5"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Physics constants
+const G = 9.8;         // gravity
+const M = 1.0;         // cart mass
+const m = 0.2;         // pendulum mass
+const L = 1.0;         // pendulum length
+const DT = 0.016;      // time step (60fps)
+const MAX_FORCE = 100; // max control force
+const TRACK_HALF = 2.5; // half track length (normalized)
+const FALL_ANGLE = Math.PI * 0.6; // 108 degrees: considered fallen
+
+// PID state
+let Kp = 25, Ki = 0.5, Kd = 5;
+let initAngleDeg = 5;
+let integralError = 0;
+let prevError = 0;
+
+// System state
+let theta = 0;    // pendulum angle (rad, 0 = vertical up)
+let thetaDot = 0; // angular velocity
+let cartX = 0;    // cart position (normalized)
+let cartV = 0;    // cart velocity
+let simTime = 0;
+let fallen = false;
+let running = false;
+let animId = null;
+
+// Chart history
+const HIST_LEN = 265;
+let angleHistory = [];
+let controlHistory = [];
+let maxControl = 50;
+
+// Load settings
+const saved = localStorage.getItem('pendulum_settings');
+if (saved) {
+  try {
+    const s = JSON.parse(saved);
+    Kp = s.kp||25; Ki = s.ki||0.5; Kd = s.kd||5; initAngleDeg = s.angle||5;
+  } catch(e) {}
+}
+
+function saveSettings() {
+  localStorage.setItem('pendulum_settings', JSON.stringify({ kp:Kp, ki:Ki, kd:Kd, angle:initAngleDeg }));
+}
+
+function resetPhysics() {
+  theta = initAngleDeg * Math.PI / 180;
+  thetaDot = 0;
+  cartX = 0;
+  cartV = 0;
+  simTime = 0;
+  fallen = false;
+  integralError = 0;
+  prevError = 0;
+  angleHistory = [];
+  controlHistory = [];
+  maxControl = 50;
+  updateCharts();
+  updateDisplay(0);
+}
+
+// Physics update (Euler integration of inverted pendulum equations)
+function physicsStep(force) {
+  const sinT = Math.sin(theta);
+  const cosT = Math.cos(theta);
+  const common = (force + m * L * thetaDot * thetaDot * sinT) / (M + m);
+
+  const thetaAcc = (G * sinT - cosT * common) / (L * (4/3 - m * cosT * cosT / (M + m)));
+  const cartAcc = common - m * L * thetaAcc * cosT / (M + m);
+
+  thetaDot += thetaAcc * DT;
+  theta += thetaDot * DT;
+  cartV += cartAcc * DT;
+  cartX += cartV * DT;
+
+  // Wall bounce
+  if (cartX > TRACK_HALF) { cartX = TRACK_HALF; cartV *= -0.5; }
+  if (cartX < -TRACK_HALF) { cartX = -TRACK_HALF; cartV *= -0.5; }
+
+  // Check fallen
+  if (Math.abs(theta) > FALL_ANGLE) fallen = true;
+}
+
+function pidControl() {
+  const error = theta; // target = 0 (vertical)
+  integralError += error * DT;
+  integralError = Math.max(-10, Math.min(10, integralError)); // anti-windup
+  const derivative = (error - prevError) / DT;
+  prevError = error;
+  const u = -(Kp * error + Ki * integralError + Kd * derivative);
+  return Math.max(-MAX_FORCE, Math.min(MAX_FORCE, u));
+}
+
+// SVG dimensions
+const SVG_W = 600, SVG_H = 200;
+const TRACK_Y = 159;
+const CART_W = 60, CART_H = 30;
+const ROD_LENGTH = 100; // px
+
+function updateDisplay(controlSignal) {
+  const cartPx = SVG_W/2 + (cartX / TRACK_HALF) * (SVG_W/2 - CART_W/2 - 10);
+  const cartLeft = cartPx - CART_W/2;
+  const pivotY = TRACK_Y - CART_H;
+
+  document.getElementById('cartBody').setAttribute('x', cartLeft);
+  document.getElementById('cartBody').setAttribute('y', TRACK_Y - CART_H);
+  document.getElementById('cartLabel').setAttribute('x', cartPx);
+  document.getElementById('cartLabel').setAttribute('y', TRACK_Y - CART_H/2 + 4);
+
+  document.getElementById('wheel1').setAttribute('cx', cartLeft + 12);
+  document.getElementById('wheel2').setAttribute('cx', cartLeft + CART_W - 12);
+
+  document.getElementById('pendPivot').setAttribute('cx', cartPx);
+  document.getElementById('pendPivot').setAttribute('cy', pivotY);
+
+  // theta=0 is up; SVG: up = negative y
+  const bobX = cartPx + ROD_LENGTH * Math.sin(theta);
+  const bobY = pivotY - ROD_LENGTH * Math.cos(theta);
+
+  document.getElementById('pendRod').setAttribute('x1', cartPx);
+  document.getElementById('pendRod').setAttribute('y1', pivotY);
+  document.getElementById('pendRod').setAttribute('x2', bobX);
+  document.getElementById('pendRod').setAttribute('y2', bobY);
+  document.getElementById('pendBob').setAttribute('cx', bobX);
+  document.getElementById('pendBob').setAttribute('cy', bobY);
+
+  // Status
+  const angleDeg = (theta * 180 / Math.PI).toFixed(2);
+  document.getElementById('statAngle').textContent = angleDeg + '°';
+  document.getElementById('statCart').textContent = cartX.toFixed(3);
+  document.getElementById('statControl').textContent = controlSignal.toFixed(2);
+  document.getElementById('statTime').textContent = simTime.toFixed(1) + 's';
+
+  const balanced = !fallen && Math.abs(theta) < 0.15;
+  const statusEl = document.getElementById('balanceStatus');
+  if (fallen) {
+    statusEl.textContent = '転倒 (FALLEN)';
+    statusEl.className = 'text-center text-xl font-bold text-red-400 py-2 rounded-lg bg-gray-700';
+  } else if (balanced) {
+    statusEl.textContent = 'バランス中 (BALANCED)';
+    statusEl.className = 'text-center text-xl font-bold text-green-400 py-2 rounded-lg bg-gray-700';
+  } else {
+    statusEl.textContent = '調整中...';
+    statusEl.className = 'text-center text-xl font-bold text-yellow-400 py-2 rounded-lg bg-gray-700';
+  }
+}
+
+function updateCharts() {
+  // Angle chart: theta mapped to y, range -FALL_ANGLE to +FALL_ANGLE
+  const aPoints = angleHistory.map((v, i) => {
+    const x = 30 + (i / HIST_LEN) * 265;
+    const y = 60 - (v / FALL_ANGLE) * 50;
+    return `${x},${Math.max(10, Math.min(110, y))}`;
+  }).join(' ');
+  document.getElementById('angleChart').setAttribute('points', aPoints || '30,60');
+
+  // Control chart
+  const cMax = Math.max(50, ...controlHistory.map(Math.abs));
+  const cPoints = controlHistory.map((v, i) => {
+    const x = 30 + (i / HIST_LEN) * 265;
+    const y = 60 - (v / cMax) * 50;
+    return `${x},${Math.max(10, Math.min(110, y))}`;
+  }).join(' ');
+  document.getElementById('controlChart').setAttribute('points', cPoints || '30,60');
+}
+
+function simLoop() {
+  if (!running || fallen) return;
+
+  const u = pidControl();
+  physicsStep(u);
+  simTime += DT;
+
+  angleHistory.push(theta);
+  controlHistory.push(u);
+  if (angleHistory.length > HIST_LEN) angleHistory.shift();
+  if (controlHistory.length > HIST_LEN) controlHistory.shift();
+
+  updateDisplay(u);
+  updateCharts();
+
+  animId = requestAnimationFrame(simLoop);
+}
+
+function startStop() {
+  if (!running) {
+    running = true;
+    if (fallen) resetPhysics();
+    document.getElementById('btnPlay').textContent = '⏸ 停止';
+    simLoop();
+  } else {
+    running = false;
+    document.getElementById('btnPlay').textContent = '▶ 開始';
+    if (animId) { cancelAnimationFrame(animId); animId = null; }
+  }
+}
+
+document.getElementById('btnPlay').addEventListener('click', startStop);
+
+document.getElementById('btnReset').addEventListener('click', () => {
+  running = false;
+  document.getElementById('btnPlay').textContent = '▶ 開始';
+  if (animId) { cancelAnimationFrame(animId); animId = null; }
+  resetPhysics();
+});
+
+document.getElementById('btnDisturbance').addEventListener('click', () => {
+  if (!fallen) {
+    thetaDot += (Math.random() > 0.5 ? 1 : -1) * 2.0;
+    if (!running) { updateDisplay(0); }
+  }
+});
+
+// Sliders
+document.getElementById('kp').value = Kp;
+document.getElementById('ki').value = Ki;
+document.getElementById('kd').value = Kd;
+document.getElementById('initAngle').value = initAngleDeg;
+document.getElementById('kpVal').textContent = Kp.toFixed(1);
+document.getElementById('kiVal').textContent = Ki.toFixed(2);
+document.getElementById('kdVal').textContent = Kd.toFixed(1);
+document.getElementById('initAngleVal').textContent = initAngleDeg;
+
+document.getElementById('kp').addEventListener('input', e => {
+  Kp = parseFloat(e.target.value);
+  document.getElementById('kpVal').textContent = Kp.toFixed(1);
+  saveSettings();
+});
+document.getElementById('ki').addEventListener('input', e => {
+  Ki = parseFloat(e.target.value);
+  document.getElementById('kiVal').textContent = Ki.toFixed(2);
+  integralError = 0;
+  saveSettings();
+});
+document.getElementById('kd').addEventListener('input', e => {
+  Kd = parseFloat(e.target.value);
+  document.getElementById('kdVal').textContent = Kd.toFixed(1);
+  saveSettings();
+});
+document.getElementById('initAngle').addEventListener('input', e => {
+  initAngleDeg = parseInt(e.target.value);
+  document.getElementById('initAngleVal').textContent = initAngleDeg;
+  saveSettings();
+});
+
+// Presets
+document.querySelectorAll('.preset-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    Kp = parseFloat(btn.dataset.kp);
+    Ki = parseFloat(btn.dataset.ki);
+    Kd = parseFloat(btn.dataset.kd);
+    document.getElementById('kp').value = Kp;
+    document.getElementById('ki').value = Ki;
+    document.getElementById('kd').value = Kd;
+    document.getElementById('kpVal').textContent = Kp.toFixed(1);
+    document.getElementById('kiVal').textContent = Ki.toFixed(2);
+    document.getElementById('kdVal').textContent = Kd.toFixed(1);
+    // Reset and start
+    running = false;
+    if (animId) { cancelAnimationFrame(animId); animId = null; }
+    resetPhysics();
+    running = true;
+    document.getElementById('btnPlay').textContent = '⏸ 停止';
+    simLoop();
+    saveSettings();
+  });
+});
+
+// Init
+resetPhysics();
+updateDisplay(0);
+</script>
+</body>
+</html>
